@@ -1,50 +1,118 @@
 # Memoria 3D (`memviz`)
 
-App de escritorio para explorar memorias CTHG (`.cthg`) de cualquier repo, al estilo de la constelación de Lappland:
+Aplicación nativa de escritorio (y modo web de desarrollo) para explorar de forma interactiva grafos de memoria **CTHG (`.cthg`)** generados por [`3D-Memory`](../3D-Memory/README.md), representados como una constelación tridimensional inspirada en la estética estelar de Lappland.
 
-- **X · el árbol del repo es el cielo.** El centro ✦ es «todo el proyecto» (reglas sin ruta, núcleo); cada carpeta o archivo con recuerdos es un astro ✧, unido a su carpeta madre.
-- **Y · el tiempo es la altura.** Lo más reciente flota más arriba sobre su astro.
-- **Z · χ es la luz y la física.** +1 brillante y atado a su ruta; −1 tenue, translúcido y a la deriva.
+Es **estrictamente de solo lectura**: nunca modifica ningún archivo `.cthg`, por lo que puede permanecer abierta mientras los hooks de Claude Code o Google Antigravity actualizan la memoria en vivo (refrescando automáticamente la vista cada **15 segundos**).
 
-Además, la app permite:
-- marcar el núcleo (✦), lo anclado (punto blanco), lo consolidado (anillo dorado) y lo obsoleto (tachado);
-- ver las aristas causa, contradice, sustituye, relación, menciona y precede;
-- filtrar por tipo, núcleo, planes y obsoletos, y buscar texto;
-- hacer clic en un recuerdo para ver su panel: χ con E y A, α/β, ruta, rama, commit, origen y vecinos.
+---
 
-## Abrir repos
+## Modelo visual de tres ejes
 
-- **＋ Abrir repo** (o `Ctrl+O`) abre un buscador.
-  - Al arrancar, la app recorre tu carpeta de usuario en segundo plano y lista los repos git y las carpetas con memoria.
-  - Escribe para filtrar; ↑/↓ y Enter para abrir.
-  - Solo se abren los que tienen memoria (◆). Para los demás, ejecuta `cthg init` en esa carpeta.
-- **Elegir carpeta…** abre el diálogo nativo para cualquier carpeta, aunque no sea un repo git. Sirve cualquier subcarpeta: se busca `.cthg/memoria.cthg` hacia arriba.
-- Cada memoria es una pestaña con ×. La app recuerda los repos recientes y las pestañas abiertas en `~/.cthg/memviz.json`.
-- La memoria global (`CTHG_GLOBAL` o `~/.cthg/global.cthg`) aparece sola si existe.
+La constelación proyecta directamente las tres dimensiones matemáticas del motor `cthg-core`:
 
-No hay rutas fijas: todo sale de lo que eliges, de tu carpeta de usuario y de las variables de entorno.
+1. **Eje X · El árbol del repositorio es el cielo (plano horizontal)**
+   - El astro central **`✦`** representa **todo el proyecto** (reglas transversales sin ruta y el núcleo `CORE`).
+   - Cada carpeta o archivo con recuerdos asociados es un astro **`✧`** en el plano celeste, enlazado mediante líneas de constelación a su carpeta madre.
+   - Las ramas del árbol de directorios se distribuyen radialmente en abanico proporcional al volumen de recuerdos que cuelgan de ellas.
+2. **Eje Y · El tiempo es la altura (eje vertical)**
+   - Los recuerdos más recientes flotan a mayor altura sobre su astro correspondiente, mostrando de un vistazo la evolución cronológica de cada módulo.
+3. **Eje Z · La confianza ($\chi \in [-1, 1]$) gobierna la luz y la física**
+   - **$\chi \to +1$ (verificado / dorado brillante)**: nodo luminoso y firmemente atraído a la vertical de su astro.
+   - **$\chi \approx 0$ (sin evidencia / gris neutro)**: brillo y atracción intermedios.
+   - **$\chi \to -1$ (dudoso o descartado / carmesí tenue)**: nodo translúcido y con mínima atracción gravitatoria que deriva hacia el exterior.
 
-Es **de solo lectura**: puede estar abierta mientras los hooks escriben la memoria, y la vuelve a leer cada 15 s.
+---
 
-## Instalar
+## Simbología, nodos y aristas
 
-Instala `memviz` en `~/.cargo/bin`, que ya está en el PATH:
+### Colores por tipo de recuerdo (`kind`)
+| Tipo | Color | Uso principal |
+| :--- | :--- | :--- |
+| **`regla`** | Dorado (`#f0b44c`) | Normas obligatorias o prohibiciones sobre una ruta o el proyecto |
+| **`decision`** | Violeta (`#9b8cff`) | Decisiones de diseño o arquitectura tomadas en el repositorio |
+| **`hecho`** | Azul cielo (`#5fb3d9`) | Hechos comprobables sobre la estructura o comportamiento del código |
+| **`incidente`** | Coral (`#ff6b6b`) | Bugs, panics o fallos pasados que originaron reglas o decisiones |
+| **`convencion`** | Verde (`#7fd18b`) | Estilo de código, idioma o nomenclatura |
+| **`plan`** | Magenta (`#e879f9`) | Trabajo futuro (`POTENTIAL`, invisible en la vista normal hasta cumplirse) |
+| **`comando`** | Turquesa (`#3fd6c8`) | Comandos de compilación, test, linter o verificación |
+| **`sesion`** | Gris acero (`#969caa`) | Resúmenes de sesión |
+
+### Marcas de estado (`flags`) y aristas
+- **Núcleo (`CORE`)**: estrella **`✦`** — se inyecta siempre en el canal 0 al iniciar sesión.
+- **Anclado (`ANCHORED`)**: núcleo blanco brillante — verificado contra el repositorio por `cthg verify`.
+- **Consolidado (`CONSOLIDATED`)**: anillo dorado exterior — respaldado por evidencia repetida ($\Delta(\alpha + \beta) \ge 3, A \ge 0{,}6$).
+- **Obsoleto (`STALE`)**: etiqueta tachada — la ruta, símbolo o bloque original ya no existe en el repositorio.
+- **Aristas**: `causa` (dorado continuo), `relacion` (azul), `menciona` (gris), `precede` (turquesa), `contradice` (rojo discontinuo) y `sustituye` (púrpura discontinuo), además de **hiperaristas** que agrupan incidentes o PRs.
+
+---
+
+## Instalación y uso
+
+Requiere Rust estable y **WebView2** (incluido de serie en Windows 11):
 
 ```bash
+# Instalar `memviz` en ~/.cargo/bin (disponible en el PATH)
 cargo install --path . --locked
+
+# Ejecutar tests y linter
+cargo test
+cargo clippy --all-targets
 ```
 
-Después se abre con `memviz` (o `memviz C:\ruta\al\repo` para empezar con ese repo abierto). Después de cambiar el código, repite `cargo install`.
-
-Para depurar la interfaz, la misma app en el navegador:
+### Comandos del binario `memviz`
 
 ```bash
-cargo run -- --web --port 7979
+# Abrir la ventana nativa (restaura las pestañas de la última sesión)
+memviz
+
+# Abrir directamente uno o varios repositorios específicos
+memviz C:\ruta\al\repo
+
+# Modo de desarrollo: servir la misma aplicación en http://127.0.0.1:7979
+memviz --web [--port 7979]
 ```
 
-## Detalles
+*(Nota: si se modifica `cthg-core` o el código de `memviz`, vuelve a ejecutar `cargo install --path . --locked`).*
 
-- Ventana nativa con WebView2 (incluido en Windows 11). Páginas y datos pasan por el protocolo propio `memviz://`: no abre puertos.
-- El perfil del WebView vive en `%LOCALAPPDATA%\memviz`.
-- Teclas: `r` recoloca la cámara, `Esc` cierra paneles. Ratón: arrastrar gira, botón derecho o Mayús+arrastrar desplaza, rueda acerca, doble clic centra.
-- Depende de `cthg-core` por ruta relativa (`../../3D-Memory/crates/cthg-core`). Si cambia el formato `.cthg`, hay que reinstalar.
+---
+
+## Controles e interfaz
+
+### Navegación 3D
+| Acción | Control |
+| :--- | :--- |
+| **Rotar cámara (orbitar)** | Clic izquierdo + arrastrar |
+| **Desplazar cámara (*pan*)** | Clic derecho + arrastrar (o `Mayús` + arrastrar) |
+| **Acercar / alejar (*zoom*)** | Rueda del ratón |
+| **Centrar en un astro o recuerdo** | Doble clic sobre el nodo o astro |
+| **Inspeccionar recuerdo** | Clic izquierdo sobre un nodo (abre el panel lateral con $\chi$, $E$, $A$, $\alpha/\beta$, ruta, rama, commit, origen y vecinos) |
+| **Recolocar cámara inicial** | Tecla `R` |
+| **Abrir buscador de repositorios** | `Ctrl + O` (o botón **＋ Abrir repo**) |
+| **Cerrar paneles o modales** | Tecla `Esc` |
+
+### Gestión de repositorios y pestañas
+- **Escaneo automático en segundo plano**: al arrancar, `memviz` recorre tu directorio de usuario (`USERPROFILE` / `HOME` hasta profundidad 6, omitiendo `node_modules`, `target`, `.git`, etc.) y lista todos los repositorios git y carpetas con memoria `.cthg`.
+- **Selector nativo (`Elegir carpeta…`)**: permite abrir cualquier carpeta o subcarpeta; `memviz` asciende automáticamente hasta encontrar `.cthg/memoria.cthg`.
+- **Memoria global**: si existe `~/.cthg/global.cthg` (o la ruta definida en `CTHG_GLOBAL`), se muestra automáticamente en su propia pestaña `global`.
+- **Persistencia**: las pestañas abiertas y los últimos 15 repositorios recientes se guardan en `~/.cthg/memviz.json`.
+
+---
+
+## Arquitectura del proyecto
+
+```text
+3D-Memory-Visualizer/
+├── Cargo.toml           # Dependencias: cthg-core (path), tao, wry, rfd, tiny_http, serde_json
+├── src/
+│   ├── main.rs          # Ventana nativa (tao + wry), protocolo `memviz://` asíncrono y servidor `--web`
+│   ├── state.rs         # Estado compartido, escáner de repos en background y router unificado (/api/*)
+│   └── graph.rs         # Proyección de `.cthg` a JSON con `View::all()` (vista omnisciente)
+└── web/
+    ├── index.html       # Estructura de barra de pestañas, filtros, lienzo 3D, buscador y panel de detalle
+    ├── style.css        # Estilos oscuros de alto contraste para la constelación y paneles
+    ├── app.js           # Gestión de pestañas, refresco cada 15 s, buscador de repos, filtros y panel lateral
+    └── view3d.js        # Motor de renderizado Canvas 3D, física de constelación (X, Y, Z) y cámara orbital
+```
+
+- **Sin puertos en modo escritorio**: la aplicación nativa se comunica íntegramente a través del protocolo personalizado `memviz://localhost/...` fuera del hilo de UI.
+- **Perfil aislado de WebView2**: se almacena en `%LOCALAPPDATA%\memviz\WebView2` (con *fallback* por PID si hay varias ventanas abiertas), evitando bloqueos de archivos en carpetas sincronizadas como OneDrive.
