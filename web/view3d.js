@@ -334,11 +334,14 @@ class View3D {
       if (drag.pan) {
         const k = this.cam.dist / 900;
         const cy = Math.cos(this.cam.yaw), sy = Math.sin(this.cam.yaw);
-        this.cam.tx -= (dx * cy + dy * sy) * k;
-        this.cam.tz += (dx * sy - dy * cy) * k;
+        const cp = Math.cos(this.cam.pitch), sp = Math.sin(this.cam.pitch);
+        this.cam.tx -= (dx * cy + dy * sy * sp) * k;
+        this.cam.ty += dy * cp * k;
+        this.cam.tz -= (-dx * sy + dy * cy * sp) * k;
       } else {
-        this.cam.yaw += dx * 0.006;
-        this.cam.pitch = Math.max(0.05, Math.min(1.55, this.cam.pitch + dy * 0.005));
+        const up = Math.cos(this.cam.pitch) >= 0 ? 1 : -1;
+        this.cam.yaw += dx * 0.006 * up;
+        this.cam.pitch += dy * 0.005;
       }
     });
     this.c.addEventListener("pointerup", () => {
@@ -358,7 +361,14 @@ class View3D {
     this.c.addEventListener("dblclick", () => { if (this.hover) this.focus(this.hover); });
   }
 
+  _normAngle(a) {
+    const tau = Math.PI * 2;
+    return ((((a + Math.PI) % tau) + tau) % tau) - Math.PI;
+  }
+
   focus(b) {
+    this.cam.yaw = this._normAngle(this.cam.yaw);
+    this.cam.pitch = this._normAngle(this.cam.pitch);
     this.anim = { from: { ...this.cam }, to: { ...this.cam, tx: b.x, ty: b.y3, tz: b.z3, dist: Math.min(this.cam.dist, 650) }, t0: performance.now() };
   }
 
@@ -372,6 +382,8 @@ class View3D {
 
   resetCamera(instant = false) {
     const ext = this.extent || 600;
+    this.cam.yaw = this._normAngle(this.cam.yaw);
+    this.cam.pitch = this._normAngle(this.cam.pitch);
     const to = { yaw: 0.55, pitch: 0.62, dist: 700 + ext * 1.9, tx: 0, ty: TIME_SPAN * 0.35, tz: 0 };
     if (instant) Object.assign(this.cam, to);
     else this.anim = { from: { ...this.cam }, to, t0: performance.now() };

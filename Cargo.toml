@@ -9,7 +9,7 @@ name = "memviz"
 path = "src/main.rs"
 
 [dependencies]
-cthg-core = { path = "../../3D-Memory/crates/cthg-core" }
+cthg-core = { path = "../3D-Memory/crates/cthg-core" }
 rfd = "0.15"
 serde_json = "1"
 tao = "0.35"
