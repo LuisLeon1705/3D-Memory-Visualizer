@@ -1,0 +1,20 @@
+[package]
+name = "memory-visualizer"
+version = "0.2.0"
+edition = "2021"
+description = "Memoria 3D: app de escritorio para explorar memorias CTHG (.cthg) por ruta, tiempo y confianza"
+
+[[bin]]
+name = "memviz"
+path = "src/main.rs"
+
+[dependencies]
+cthg-core = { path = "../../3D-Memory/crates/cthg-core" }
+rfd = "0.15"
+serde_json = "1"
+tao = "0.35"
+tiny_http = "0.12"
+wry = "0.55"
+
+[profile.release]
+opt-level = 3

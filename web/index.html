@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Memoria 3D · CTHG</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="sigil">◆</span>
+    <div>
+      <div class="title">Memoria 3D</div>
+      <div class="subtitle">visor CTHG · ruta · tiempo · χ</div>
+    </div>
+  </div>
+  <nav id="memories" class="periods"></nav>
+  <div class="who">
+    <button type="button" id="openRepo" title="Buscar un repositorio o elegir una carpeta (Ctrl+O)">＋ Abrir repo</button>
+    <span id="source" class="source" title=""></span>
+    <button type="button" id="reload" class="ghost" title="Volver a leer el archivo (los hooks lo cambian mientras trabajas)">Recargar</button>
+  </div>
+</header>
+
+<div id="finder" class="modal hidden" role="dialog" aria-label="Abrir repositorio">
+  <div class="modal-box finder-box">
+    <button type="button" class="close" id="finderClose" aria-label="cerrar">×</button>
+    <h3>Abrir un repositorio</h3>
+    <p class="modal-hint">Busca entre los repos de tu carpeta de usuario o elige cualquier carpeta. Solo los que tienen memoria (◆) se pueden abrir; para los demás, crea una con <code>cthg init</code>.</p>
+    <div class="finder-row">
+      <input id="repoSearch" placeholder="buscar por nombre o ruta…" spellcheck="false" autocomplete="off">
+      <button type="button" id="pickFolder">Elegir carpeta…</button>
+    </div>
+    <div class="finder-meta"><span id="finderStatus"></span><button type="button" id="rescan" class="ghost small">Buscar de nuevo</button></div>
+    <div id="repoList" class="repo-list"></div>
+    <div id="finderError" class="finder-error hidden"></div>
+  </div>
+</div>
+
+<main class="space">
+  <canvas id="view"></canvas>
+
+  <div class="kinds" id="kinds"></div>
+
+  <div class="overlay tr controls">
+    <label class="row">Color
+      <select id="colormode">
+        <option value="kind">por tipo</option>
+        <option value="chi">por χ</option>
+        <option value="origin">por origen</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" id="coreOnly"> solo el núcleo (CORE)</label>
+    <label class="check"><input type="checkbox" id="showPlans"> planes (aún no ocurren)</label>
+    <label class="check"><input type="checkbox" id="showStale" checked> obsoletos y descartados</label>
+    <label class="check"><input type="checkbox" id="autorotate"> rotación automática</label>
+    <div class="edge-label">aristas</div>
+    <div class="edge-toggles" id="edgeToggles"></div>
+    <input id="search" placeholder="buscar regla o ruta…" spellcheck="false">
+  </div>
+
+  <div class="overlay bl scale">
+    <div class="scale-row"><span class="dot strong"></span><b>+1</b> verificado · brillante y atado a su ruta</div>
+    <div class="scale-row"><span class="dot mid"></span><b>0</b> sin evidencia</div>
+    <div class="scale-row"><span class="dot weak"></span><b>−1</b> descartado · tenue y a la deriva</div>
+    <div class="scale-hint">✦ centro = todo el proyecto · ✧ astros = carpetas y archivos · altura = tiempo (arriba lo más nuevo)</div>
+  </div>
+  <div class="overlay br stats" id="stats"></div>
+
+  <aside id="info" class="info hidden">
+    <button class="close" id="infoClose" aria-label="cerrar">×</button>
+    <div class="info-kind" id="infoKind"></div>
+    <h3 id="infoLabel"></h3>
+    <div class="chi">
+      <div class="chi-bar"><div class="chi-zero"></div><div class="chi-mark" id="chiMark"></div></div>
+      <div class="chi-nums" id="chiNums"></div>
+    </div>
+    <p id="infoText"></p>
+    <dl id="infoMeta"></dl>
+    <div class="neigh" id="infoNeigh"></div>
+  </aside>
+  <div id="tooltip" class="tooltip hidden"></div>
+  <div id="empty" class="empty hidden"></div>
+</main>
+
+<script src="/view3d.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
