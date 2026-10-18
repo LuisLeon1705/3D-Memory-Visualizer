@@ -1,6 +1,9 @@
 # Memoria 3D (`memviz`)
 
-Aplicación nativa de escritorio (y modo web de desarrollo) para explorar de forma interactiva grafos de memoria **CTHG (`.cthg`)** generados por [`3D-Memory`](../3D-Memory/README.md), representados como una constelación tridimensional inspirada en la estética estelar de Lappland.
+[![GitHub](https://img.shields.io/badge/GitHub-3D--Memory--Visualizer-24292f?style=flat-square&logo=github)](https://github.com/LuisLeon1705/3D-Memory-Visualizer)
+[![Core Engine](https://img.shields.io/badge/Core_Engine-3D_Memory-0969da?style=flat-square)](https://github.com/LuisLeon1705/3D_Memory)
+
+Aplicación nativa de escritorio (y modo web de desarrollo) para explorar de forma interactiva grafos de memoria **CTHG (`.cthg`)** generados por [`3D-Memory` (`cthg`)](https://github.com/LuisLeon1705/3D_Memory), representados como una constelación tridimensional inspirada en la estética estelar de Lappland.
 
 Es **estrictamente de solo lectura**: nunca modifica ningún archivo `.cthg`, por lo que puede permanecer abierta mientras los hooks de Claude Code o Google Antigravity actualizan la memoria en vivo (refrescando automáticamente la vista cada **15 segundos**).
 
