@@ -81,17 +81,28 @@ memviz --web [--port 7979]
 
 ## Controles e interfaz
 
-### Navegación 3D
+### Navegación 3D y Capas
 | Acción | Control |
 | :--- | :--- |
 | **Rotar cámara (orbitar)** | Clic izquierdo + arrastrar |
 | **Desplazar cámara (*pan*)** | Clic derecho + arrastrar (o `Mayús` + arrastrar) |
 | **Acercar / alejar (*zoom*)** | Rueda del ratón |
 | **Centrar en un astro o recuerdo** | Doble clic sobre el nodo o astro |
-| **Inspeccionar recuerdo** | Clic izquierdo sobre un nodo (abre el panel lateral con $\chi$, $E$, $A$, $\alpha/\beta$, ruta, rama, commit, origen y vecinos) |
+| **Inspeccionar recuerdo** | Clic izquierdo sobre un recuerdo (abre panel lateral con $\chi$, $E$, $A$, $\alpha/\beta$, ruta, etc. e ilumina el **alcance de la regla**) |
+| **Inspeccionar archivo de código** | Clic izquierdo sobre un astro de archivo (abre panel con `file_map`: reglas ancladas, en vecinos, importaciones y símbolos con firma) |
 | **Recolocar cámara inicial** | Tecla `R` |
 | **Abrir buscador de repositorios** | `Ctrl + O` (o botón **＋ Abrir repo**) |
 | **Cerrar paneles o modales** | Tecla `Esc` |
+
+### Capas activables (Fase 8e)
+- **Memoria**: Recuerdos de la constelación situados a la altura de su tiempo de aprendizaje ($Y$) y gobernados por su confianza ($\chi$).
+- **Código**: Todos los archivos indexados representados como astros en el plano horizontal ($X$), dentro del mismo árbol jerárquico. Los archivos con reglas activas brillan con mayor intensidad; los que no tienen reglas lucen tenues; los archivos con error de escaneo llevan un indicador visual de alerta. Si un repositorio supera los 2.000 archivos, la vista se agrega automáticamente por carpetas.
+- **Importaciones**: Líneas finas entre archivos que representan dependencias resueltas directas.
+- **Llamadas**: Aristas entre archivos con grosor proporcional a la cantidad de llamadas entre sus símbolos (aisladas por familias de lenguajes y sin ambigüedades).
+- **Aviso de «sin índice»**: `memviz` es **estrictamente de solo lectura** respecto a `.cthg/indice.tsv` (nunca lo genera ni modifica). Si un proyecto no dispone de índice o está corrupto, la capa de código muestra el aviso «sin índice: ejecuta `cthg index` en el repo» sin interrumpir la exploración de la memoria causal.
+
+### Alcance de una regla
+Al seleccionar una regla o recuerdo anclado a una ruta, `memviz` ilumina de inmediato su **alcance completo**: el archivo o carpeta donde está anclada, todos los archivos que dependen de él o de los que depende (vecinos a 1 salto) y los enlaces de importación que los unen, atenuando el resto de la constelación. Esto permite ver con precisión a qué componentes afecta una regla antes de preparar un prompt.
 
 ### Gestión de repositorios y pestañas
 - **Escaneo automático en segundo plano**: al arrancar, `memviz` recorre tu directorio de usuario (`USERPROFILE` / `HOME` hasta profundidad 6, omitiendo `node_modules`, `target`, `.git`, etc.) y lista todos los repositorios git y carpetas con memoria `.cthg`.
@@ -109,7 +120,8 @@ memviz --web [--port 7979]
 ├── src/
 │   ├── main.rs          # Ventana nativa (tao + wry), protocolo `memviz://` asíncrono y servidor `--web`
 │   ├── state.rs         # Estado compartido, escáner de repos en background y router unificado (/api/*)
-│   └── graph.rs         # Proyección de `.cthg` a JSON con `View::all()` (vista omnisciente)
+│   ├── graph.rs         # Proyección de `.cthg` a JSON con `View::all()` (vista omnisciente)
+│   └── code.rs          # Proyección de `.cthg/indice.tsv` a JSON (/api/code y /api/file) con capas y agregación
 └── web/
     ├── index.html       # Estructura de barra de pestañas, filtros, lienzo 3D, buscador y panel de detalle
     ├── style.css        # Estilos oscuros de alto contraste para la constelación y paneles

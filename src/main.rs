@@ -8,6 +8,7 @@
 //! `memviz --web` serves the same app on 127.0.0.1 for debugging it in a browser.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod code;
 mod graph;
 mod state;
 

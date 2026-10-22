@@ -55,6 +55,14 @@
     <label class="check"><input type="checkbox" id="showPlans"> planes (aún no ocurren)</label>
     <label class="check"><input type="checkbox" id="showStale" checked> obsoletos y descartados</label>
     <label class="check"><input type="checkbox" id="autorotate"> rotación automática</label>
+    <div class="edge-label">capas</div>
+    <div class="layer-toggles" id="layerToggles">
+      <label class="check"><input type="checkbox" id="layerMemory" checked> Memoria</label>
+      <label class="check"><input type="checkbox" id="layerCode"> Código</label>
+      <label class="check"><input type="checkbox" id="layerImports"> Importaciones</label>
+      <label class="check"><input type="checkbox" id="layerCalls"> Llamadas</label>
+    </div>
+    <div id="indexNotice" class="index-notice hidden"></div>
     <div class="edge-label">aristas</div>
     <div class="edge-toggles" id="edgeToggles"></div>
     <input id="search" placeholder="buscar regla o ruta…" spellcheck="false">
@@ -79,6 +87,41 @@
     <p id="infoText"></p>
     <dl id="infoMeta"></dl>
     <div class="neigh" id="infoNeigh"></div>
+  </aside>
+
+  <aside id="filePanel" class="info file-panel hidden">
+    <button class="close" id="fileClose" aria-label="cerrar">×</button>
+    <div class="info-kind" id="fileKind"></div>
+    <h3 id="filePath"></h3>
+    <div id="fileNotice" class="file-notice hidden"></div>
+
+    <div id="fileRulesSection" class="file-section hidden">
+      <div class="section-title">Reglas del archivo y carpetas</div>
+      <div id="fileRules" class="rules-list"></div>
+    </div>
+
+    <div id="fileNeighborsSection" class="file-section hidden">
+      <div class="section-title">En vecinos</div>
+      <div id="fileNeighborRules" class="rules-list"></div>
+    </div>
+
+    <div id="fileDepsSection" class="file-section hidden">
+      <div class="section-title">Importaciones</div>
+      <div id="fileImports" class="deps-list"></div>
+      <div class="section-subtitle">Importado por</div>
+      <div id="fileImportedBy" class="deps-list"></div>
+    </div>
+
+    <div id="fileSymbolsSection" class="file-section hidden">
+      <div class="section-title">Símbolos</div>
+      <div id="fileSymbolsSummary" class="symbols-summary"></div>
+      <div id="fileSymbols" class="symbols-list"></div>
+    </div>
+
+    <div id="fileSiblingsSection" class="file-section hidden">
+      <div class="section-title">Hermanos en carpeta</div>
+      <div id="fileSiblings" class="siblings-list"></div>
+    </div>
   </aside>
   <div id="tooltip" class="tooltip hidden"></div>
   <div id="empty" class="empty hidden"></div>

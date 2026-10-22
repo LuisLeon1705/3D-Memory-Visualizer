@@ -96,13 +96,20 @@ class View3D {
       showStale: true,
       autorotate: false,
       edges: { causa: true, relacion: false, menciona: false, precede: false, contradice: true, sustituye: true },
+      layers: { memory: true, code: true, imports: true, calls: false },
       hiddenKinds: new Set(),
       search: "",
     };
+    this.code = null;
+    this.codeFiles = new Map();
+    this.selectedFile = null;
+    this.reachHubs = null;
+    this.reachAnchored = null;
     this.alpha = 1;
     this.hover = null;
     this.selected = null;
     this.onSelect = () => {};
+    this.onSelectFile = () => {};
     this.dpr = window.devicePixelRatio || 1;
     this._makeSky();
     this._bind();
@@ -112,9 +119,14 @@ class View3D {
   }
 
   // ───────────── structure ─────────────
-  setGraph(g, viewKey) {
+  setGraph(g, code, viewKey) {
     const prev = new Map(this.bodies.map((b) => [b.key, b]));
     this.name = g.name;
+    this.code = code || null;
+    this.codeFiles = new Map();
+    if (this.code && this.code.files) {
+      for (const f of this.code.files) this.codeFiles.set(f.path, f);
+    }
     this.byId = new Map();
     const nodes = g.nodes.map((n) => Object.assign({}, n, { key: "n" + n.id, nb: [], isHub: false }));
     for (const n of nodes) this.byId.set(n.id, n);
@@ -138,6 +150,7 @@ class View3D {
         members: [],
         children: [],
         parent: null,
+        fileInfo: null,
       };
       hubs.set(path, h);
       if (path !== "") {
@@ -153,8 +166,15 @@ class View3D {
       n.hub = h.key;
       h.members.push(n);
     }
-    // Weight = memories in the subtree: wide branches get a wide slice of the sky.
-    const weigh = (h) => (h.weight = h.members.length + h.children.reduce((s, c) => s + weigh(c), 0) || 1);
+    // Include all indexed files in the sky tree layout (union of memory and code)
+    if (this.code && this.code.files) {
+      for (const f of this.code.files) {
+        const h = hub(f.path);
+        h.fileInfo = f;
+      }
+    }
+    // Weight = memories + files in the subtree: stable radial placement
+    const weigh = (h) => (h.weight = h.members.length + (h.fileInfo ? 1 : 0) + h.children.reduce((s, c) => s + weigh(c), 0) || 1);
     const root = hubs.get("");
     weigh(root);
     const place = (h, a0, a1) => {
@@ -225,11 +245,48 @@ class View3D {
     return true;
   }
 
+  _hasMemShown(h) {
+    return h.members.some((n) => this._nodeShown(n)) || h.children.some((c) => this._hasMemShown(c));
+  }
+
+  _hasCode(h) {
+    return !!h.fileInfo || h.children.some((c) => this._hasCode(c));
+  }
+
   _shown(b) {
-    if (!b.isHub) return this._nodeShown(b);
+    if (!b.isHub) {
+      if (!this.opts.layers.memory) return false;
+      return this._nodeShown(b);
+    }
     if (b.root) return true;
-    const any = (h) => h.members.some((n) => this._nodeShown(n)) || h.children.some(any);
-    return any(b);
+    const hasMem = this.opts.layers.memory && this._hasMemShown(b);
+    const hasCode = this.opts.layers.code && this._hasCode(b);
+    return hasMem || hasCode;
+  }
+
+  setRuleReach(n) {
+    if (!n) {
+      this.reachHubs = null;
+      this.reachAnchored = null;
+      return;
+    }
+    const anchor = n.p || "";
+    const anchored = new Set();
+    for (const h of this.hubs.values()) {
+      if (h.root && anchor === "") anchored.add("");
+      else if (anchor !== "" && (h.path === anchor || h.path.startsWith(anchor + "/"))) {
+        anchored.add(h.path);
+      }
+    }
+    const neighbors = new Set();
+    if (this.code && this.code.imports) {
+      for (const imp of this.code.imports) {
+        if (anchored.has(imp.from)) neighbors.add(imp.to);
+        if (anchored.has(imp.to)) neighbors.add(imp.from);
+      }
+    }
+    this.reachAnchored = anchored;
+    this.reachHubs = new Set([...anchored, ...neighbors]);
   }
 
   refresh() {
@@ -346,9 +403,24 @@ class View3D {
     });
     this.c.addEventListener("pointerup", () => {
       if (drag && drag.moved < 5) {
-        this.selected = this.hover && !this.hover.isHub ? this.hover : null;
-        if (this.hover && this.hover.isHub) this.focus(this.hover);
-        this.onSelect(this.selected);
+        if (this.hover && this.hover.isHub && this.hover.fileInfo) {
+          this.selectedFile = this.hover;
+          this.selected = null;
+          this.setRuleReach(null);
+          this.onSelectFile(this.hover);
+        } else if (this.hover && !this.hover.isHub) {
+          this.selected = this.hover;
+          this.selectedFile = null;
+          this.setRuleReach(this.selected);
+          this.onSelect(this.selected);
+        } else {
+          if (this.hover && this.hover.isHub) this.focus(this.hover);
+          this.selected = null;
+          this.selectedFile = null;
+          this.setRuleReach(null);
+          this.onSelect(null);
+          this.onSelectFile(null);
+        }
       }
       drag = null;
       this.c.classList.remove("drag");
@@ -555,6 +627,36 @@ class View3D {
     }
     g.setLineDash([]);
 
+    // Import edges: fine lines between files
+    if (this.opts.layers.imports && this.code && this.code.imports) {
+      for (const imp of this.code.imports) {
+        const A = this.hubs.get(imp.from), B = this.hubs.get(imp.to);
+        if (!A || !B) continue;
+        const a = proj.get(A), b = proj.get(B);
+        if (!a || !b) continue;
+        const touchesReach = this.reachHubs && (this.reachHubs.has(imp.from) && this.reachHubs.has(imp.to));
+        let al = touchesReach ? 0.95 : (this.reachHubs ? 0.08 : 0.35);
+        g.strokeStyle = touchesReach ? "rgba(95, 215, 255, 0.95)" : `rgba(80, 180, 220, ${al})`;
+        g.lineWidth = touchesReach ? 1.8 : 0.8;
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+      }
+    }
+
+    // Call edges: thickness proportional to call count
+    if (this.opts.layers.calls && this.code && this.code.calls) {
+      for (const call of this.code.calls) {
+        const A = this.hubs.get(call.from), B = this.hubs.get(call.to);
+        if (!A || !B) continue;
+        const a = proj.get(A), b = proj.get(B);
+        if (!a || !b) continue;
+        const al = this.reachHubs ? 0.1 : 0.55;
+        g.strokeStyle = `rgba(176, 122, 217, ${al})`;
+        const width = Math.min(5.0, 0.8 + Math.log2(call.count + 1) * 0.9);
+        g.lineWidth = width;
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+      }
+    }
+
     // Cross edges (causes, contradictions, replacements) on demand or around the selection.
     for (const e of this.edges) {
       const st = EDGE_STYLE[e.k];
@@ -616,6 +718,62 @@ class View3D {
       this._sparkle(g, p.x, p.y, R * 1.7, "rgba(255,255,255,0.95)");
       g.fillStyle = "#fff";
       g.beginPath(); g.arc(p.x, p.y, R * 0.55, 0, Math.PI * 2); g.fill();
+      return R;
+    }
+    if (h.fileInfo) {
+      if (!this.opts.layers.code) return 0;
+      const isReach = this.reachHubs && this.reachHubs.has(h.path);
+      const isAnchored = this.reachAnchored && this.reachAnchored.has(h.path);
+      const isNeighbor = this.reachHubs && !isAnchored && this.reachHubs.has(h.path);
+      const isSelected = this.selectedFile && this.selectedFile.path === h.path;
+      const hasRules = h.fileInfo.rules && h.fileInfo.rules.length > 0;
+      const isError = h.fileInfo.status === "error";
+
+      let al = this.reachHubs ? (isAnchored ? 1.0 : (isNeighbor ? 0.9 : 0.12)) : (hasRules ? 0.95 : 0.45);
+      if (matched) al = 1.0;
+
+      const R = (isAnchored ? 6.5 : (hasRules ? 5.2 : 3.4)) * Math.max(0.6, p.s * 1.1);
+
+      const gr = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, R * 4);
+      if (isError) {
+        gr.addColorStop(0, `rgba(255, 107, 107, ${0.45 * al})`);
+        gr.addColorStop(1, "rgba(255, 107, 107, 0)");
+      } else if (isAnchored) {
+        gr.addColorStop(0, `rgba(240, 180, 76, ${0.5 * al})`);
+        gr.addColorStop(1, "rgba(240, 180, 76, 0)");
+      } else if (isNeighbor) {
+        gr.addColorStop(0, `rgba(95, 179, 217, ${0.45 * al})`);
+        gr.addColorStop(1, "rgba(95, 179, 217, 0)");
+      } else if (hasRules) {
+        gr.addColorStop(0, `rgba(160, 200, 255, ${0.35 * al})`);
+        gr.addColorStop(1, "rgba(160, 200, 255, 0)");
+      } else {
+        gr.addColorStop(0, `rgba(140, 160, 200, ${0.18 * al})`);
+        gr.addColorStop(1, "rgba(140, 160, 200, 0)");
+      }
+      g.fillStyle = gr;
+      g.beginPath(); g.arc(p.x, p.y, R * 4, 0, Math.PI * 2); g.fill();
+
+      if (hasRules || isAnchored || isNeighbor) {
+        const col = isError ? "rgba(255, 107, 107, 1)" : isAnchored ? "rgba(240, 180, 76, 1)" : isNeighbor ? "rgba(95, 179, 217, 1)" : `rgba(215, 230, 255, ${al})`;
+        this._sparkle(g, p.x, p.y, R * 1.5, col);
+      } else {
+        g.fillStyle = isError ? "#ff6b6b" : `rgba(180, 195, 225, ${al})`;
+        g.beginPath(); g.arc(p.x, p.y, R * 0.7, 0, Math.PI * 2); g.fill();
+      }
+
+      if (isError) {
+        g.fillStyle = "#ff6b6b";
+        g.font = `bold ${Math.max(10, Math.round(R * 1.6))}px sans-serif`;
+        g.fillText("!", p.x + R + 1, p.y - 1);
+      }
+
+      if (isSelected) {
+        g.strokeStyle = "#fff";
+        g.lineWidth = 1.4;
+        g.beginPath(); g.arc(p.x, p.y, R + 4, 0, Math.PI * 2); g.stroke();
+      }
+
       return R;
     }
     const own = h.members.length > 0;
@@ -730,9 +888,16 @@ class View3D {
     if (b.isHub) {
       tt.append(b.root ? "todo el proyecto (reglas sin ruta)" : b.path);
       const s = document.createElement("b");
-      const n = b.members.filter((m) => this._nodeShown(m)).length;
-      s.textContent = `${n} recuerdo${n === 1 ? "" : "s"} aquí`;
-      s.style.color = "rgba(175,195,255,0.9)";
+      if (b.fileInfo) {
+        const sym = b.fileInfo.symbols;
+        const rCount = b.fileInfo.rules.length;
+        s.textContent = `${b.fileInfo.lang} · ${sym} símbolo${sym === 1 ? "" : "s"} · ${rCount} regla${rCount === 1 ? "" : "s"}${b.fileInfo.status === "error" ? " · [error escaneo]" : ""}`;
+        s.style.color = b.fileInfo.status === "error" ? "#ff6b6b" : "rgba(175,195,255,0.9)";
+      } else {
+        const n = b.members.filter((m) => this._nodeShown(m)).length;
+        s.textContent = `${n} recuerdo${n === 1 ? "" : "s"} aquí`;
+        s.style.color = "rgba(175,195,255,0.9)";
+      }
       tt.append(s);
       return;
     }

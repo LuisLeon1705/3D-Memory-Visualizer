@@ -5,10 +5,12 @@
 //! (walking up to `.cthg/memoria.cthg`), the global memory from `CTHG_GLOBAL` or the home
 //! folder, and repos by scanning the home folder in the background.
 
-use crate::graph;
+use crate::{code, graph};
 use cthg_core::binary;
+use cthg_core::index::{self, FileMapKind, ProjectIndex};
+use cthg_core::score::{self, certainty_tag, View};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -53,6 +55,7 @@ pub struct State {
     pub recent: Vec<PathBuf>,
     pub found: Vec<Repo>,
     pub scanning: bool,
+    pub code_caches: HashMap<String, (u64, Value)>,
 }
 
 pub type Shared = Arc<Mutex<State>>;
@@ -244,6 +247,204 @@ pub fn route(state: &Shared, path: &str, query: &str, pick_folder: &dyn Fn() -> 
         "/view3d.js" => Reply { status: 200, ctype: "text/javascript; charset=utf-8", body: VIEW_JS.as_bytes().to_vec() },
         "/app.js" => Reply { status: 200, ctype: "text/javascript; charset=utf-8", body: APP_JS.as_bytes().to_vec() },
         "/api/memories" => json_reply(200, tabs(&lock())),
+        "/api/code" => {
+            let id = param(query, "m").unwrap_or_default();
+            let src = lock().sources.iter().find(|s| s.id == id).cloned();
+            let Some(s) = src else {
+                return json_reply(404, json!({ "error": "memoria desconocida" }));
+            };
+            if s.root.as_os_str().is_empty() {
+                return json_reply(200, json!({
+                    "files": [],
+                    "imports": [],
+                    "calls": [],
+                    "mtime": 0,
+                    "aggregated": false,
+                    "notice": "sin índice: ejecuta `cthg index` en el repo"
+                }));
+            }
+            let index_path = s.root.join(".cthg").join("indice.tsv");
+            if !index_path.is_file() {
+                return json_reply(200, json!({
+                    "files": [],
+                    "imports": [],
+                    "calls": [],
+                    "mtime": 0,
+                    "aggregated": false,
+                    "notice": "sin índice: ejecuta `cthg index` en el repo"
+                }));
+            }
+
+            let mtime = fs::metadata(&index_path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+
+            // Check cache
+            {
+                let st = lock();
+                if let Some((cached_mtime, cached_json)) = st.code_caches.get(&s.id) {
+                    if *cached_mtime == mtime {
+                        return json_reply(200, cached_json.clone());
+                    }
+                }
+            }
+
+            // Strictly read-only: parse index file without touching disk
+            let content = match fs::read_to_string(&index_path) {
+                Ok(c) => c,
+                Err(_) => {
+                    return json_reply(200, json!({
+                        "files": [],
+                        "imports": [],
+                        "calls": [],
+                        "mtime": 0,
+                        "aggregated": false,
+                        "notice": "sin índice: ejecuta `cthg index` en el repo"
+                    }));
+                }
+            };
+
+            let project_index = match index::parse_index(&content) {
+                Ok(idx) => idx,
+                Err(_) => {
+                    return json_reply(200, json!({
+                        "files": [],
+                        "imports": [],
+                        "calls": [],
+                        "mtime": 0,
+                        "aggregated": false,
+                        "notice": "sin índice: ejecuta `cthg index` en el repo"
+                    }));
+                }
+            };
+
+            let mem_opt = binary::load(&s.file).ok();
+            let scores = mem_opt
+                .as_ref()
+                .map(|m| score::score_all(m, &View::all()))
+                .unwrap_or_default();
+
+            let code_json = code::code_to_json(&project_index, mem_opt.as_ref(), &scores, mtime);
+
+            // Cache it
+            {
+                let mut st = state.lock().unwrap_or_else(|e| e.into_inner());
+                st.code_caches.insert(s.id.clone(), (mtime, code_json.clone()));
+            }
+
+            json_reply(200, code_json)
+        }
+        "/api/file" => {
+            let id = param(query, "m").unwrap_or_default();
+            let target_path = param(query, "path").unwrap_or_default();
+            let src = lock().sources.iter().find(|s| s.id == id).cloned();
+            let Some(s) = src else {
+                return json_reply(404, json!({ "error": "memoria desconocida" }));
+            };
+            if target_path.is_empty() {
+                return json_reply(400, json!({ "error": "falta la ruta" }));
+            }
+
+            let index_path = s.root.join(".cthg").join("indice.tsv");
+            let project_index = if index_path.is_file() {
+                fs::read_to_string(&index_path)
+                    .ok()
+                    .and_then(|c| index::parse_index(&c).ok())
+                    .unwrap_or_default()
+            } else {
+                ProjectIndex::default()
+            };
+
+            let exists_on_disk = s.root.join(&target_path).exists();
+            let mem_opt = binary::load(&s.file).ok();
+            let scores = mem_opt
+                .as_ref()
+                .map(|m| score::score_all(m, &View::all()))
+                .unwrap_or_default();
+
+            let map = index::file_map(
+                &project_index,
+                mem_opt.as_ref(),
+                &scores,
+                &target_path,
+                exists_on_disk,
+            );
+
+            let map_kind = match map.kind {
+                FileMapKind::Indexed => "indexed",
+                FileMapKind::NotIndexed => "not_indexed",
+                FileMapKind::NewFile => "new_file",
+            };
+
+            let rule_to_json = |id: u32| {
+                if let Some(m) = mem_opt.as_ref() {
+                    if let Some(node) = m.nodes.get(id as usize) {
+                        let sc = scores.get(id as usize);
+                        let chi = sc.map(|s| s.chi).unwrap_or(0.0);
+                        return json!({
+                            "id": node.id,
+                            "label": node.label,
+                            "text": node.text,
+                            "path": node.path,
+                            "kind": node.kind.name(),
+                            "chi": chi,
+                            "tag": certainty_tag(chi),
+                        });
+                    }
+                }
+                json!({ "id": id, "label": format!("#{id}"), "text": "", "path": "", "kind": "regla", "chi": 0.0, "tag": "sin evidencia" })
+            };
+
+            let direct_rules: Vec<Value> = map.direct_rules.into_iter().map(rule_to_json).collect();
+            let neighbor_rules: Vec<Value> = map.neighbor_rules.into_iter().map(rule_to_json).collect();
+
+            let symbols: Vec<Value> = map
+                .symbols
+                .into_iter()
+                .map(|s| {
+                    json!({
+                        "name": s.name,
+                        "kind": s.kind,
+                        "line": s.line,
+                        "end_line": s.end_line,
+                        "public": s.public,
+                        "parent": s.parent,
+                        "test": s.test,
+                        "signature": s.signature,
+                        "decorators": s.decorators,
+                    })
+                })
+                .collect();
+
+            let siblings: Vec<Value> = map
+                .siblings
+                .into_iter()
+                .map(|sib| {
+                    json!({
+                        "path": sib.path,
+                        "public_symbols": sib.public_symbols.into_iter().map(|s| json!({
+                            "name": s.name,
+                            "kind": s.kind,
+                            "signature": s.signature,
+                        })).collect::<Vec<_>>(),
+                    })
+                })
+                .collect();
+
+            json_reply(200, json!({
+                "path": map.path,
+                "kind": map_kind,
+                "direct_rules": direct_rules,
+                "neighbor_rules": neighbor_rules,
+                "imports": map.imports,
+                "imported_by": map.imported_by,
+                "symbols": symbols,
+                "siblings": siblings,
+            }))
+        }
         "/api/graph" => {
             let id = param(query, "m").unwrap_or_default();
             let src = lock().sources.iter().find(|s| s.id == id).cloned();
@@ -330,6 +531,74 @@ mod tests {
         assert!(paths.contains(&&repo) && found.iter().any(|r| r.path == repo && r.memory));
         assert!(paths.contains(&&base.join("plain")), "a git repo without memory is listed too");
         assert!(!paths.iter().any(|p| p.starts_with(repo.join("node_modules"))), "dependencies are skipped");
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn api_code_is_strictly_read_only_and_hash_is_invariant() {
+        let base = std::env::temp_dir().join(format!("memviz-ro-{}", std::process::id()));
+        let cthg_dir = base.join(".cthg");
+        fs::create_dir_all(&cthg_dir).unwrap();
+
+        let mut m = cthg_core::model::Memory::default();
+        let claim = cthg_core::learn::Claim::rule("Regla test", "src/lib.rs");
+        cthg_core::learn::learn(&mut m, &claim, 1.0);
+        let mem_path = cthg_dir.join("memoria.cthg");
+        cthg_core::binary::save(&m, &mem_path).unwrap();
+
+        let index_content = "cthg-indice 2\nF\tsrc/lib.rs\trust\t100\t1000\t12345678\t-\nS\tfn\trun\t1\t5\t1\t-\t0\t()\t-\n";
+        let index_path = cthg_dir.join("indice.tsv");
+        fs::write(&index_path, index_content).unwrap();
+
+        let bytes_before = fs::read(&index_path).unwrap();
+
+        let shared = State::new();
+        let tab_id = shared.lock().unwrap().open(&base).unwrap();
+
+        let reply = route(&shared, "/api/code", &format!("m={tab_id}"), &|| None);
+        assert_eq!(reply.status, 200);
+
+        let body: Value = serde_json::from_slice(&reply.body).unwrap();
+        assert_eq!(body["files"].as_array().unwrap().len(), 1);
+        assert_eq!(body["files"][0]["path"], "src/lib.rs");
+        assert_eq!(body["files"][0]["rules"].as_array().unwrap().len(), 1);
+
+        let bytes_after = fs::read(&index_path).unwrap();
+        assert_eq!(bytes_before, bytes_after, "content of indice.tsv must never change");
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn missing_or_corrupt_index_returns_notice_without_failing() {
+        let base = std::env::temp_dir().join(format!("memviz-corrupt-{}", std::process::id()));
+        let cthg_dir = base.join(".cthg");
+        fs::create_dir_all(&cthg_dir).unwrap();
+
+        let m = cthg_core::model::Memory::default();
+        let mem_path = cthg_dir.join("memoria.cthg");
+        cthg_core::binary::save(&m, &mem_path).unwrap();
+
+        let shared = State::new();
+        let tab_id = shared.lock().unwrap().open(&base).unwrap();
+
+        // 1. Missing index
+        let rep1 = route(&shared, "/api/code", &format!("m={tab_id}"), &|| None);
+        assert_eq!(rep1.status, 200);
+        let body1: Value = serde_json::from_slice(&rep1.body).unwrap();
+        assert!(body1["files"].as_array().unwrap().is_empty());
+        assert_eq!(body1["notice"], "sin índice: ejecuta `cthg index` en el repo");
+
+        // 2. Corrupt index (wrong header)
+        let index_path = cthg_dir.join("indice.tsv");
+        fs::write(&index_path, "cabecera invalida\n").unwrap();
+
+        let rep2 = route(&shared, "/api/code", &format!("m={tab_id}"), &|| None);
+        assert_eq!(rep2.status, 200);
+        let body2: Value = serde_json::from_slice(&rep2.body).unwrap();
+        assert!(body2["files"].as_array().unwrap().is_empty());
+        assert_eq!(body2["notice"], "sin índice: ejecuta `cthg index` en el repo");
+
         let _ = fs::remove_dir_all(&base);
     }
 }
