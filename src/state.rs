@@ -97,6 +97,53 @@ pub fn pretty(p: &Path) -> String {
     }
 }
 
+/// Collects all unique repository root paths known to the visualizer (open sources, recent, and scanned repos).
+pub fn all_known_repo_paths(st: &State) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for s in &st.sources {
+        if !s.root.as_os_str().is_empty() && seen.insert(s.root.clone()) {
+            out.push(s.root.clone());
+        }
+    }
+    for p in &st.recent {
+        if seen.insert(p.clone()) {
+            out.push(p.clone());
+        }
+    }
+    for r in &st.found {
+        if seen.insert(r.path.clone()) {
+            out.push(r.path.clone());
+        }
+    }
+    out
+}
+
+/// Aggregates global rule recalls by reading `.cthg/global_recalls.json` across all known repos.
+pub fn aggregate_global_recalls(paths: &[PathBuf]) -> HashMap<u32, u32> {
+    let mut totals = HashMap::new();
+    for p in paths {
+        let recalls_file = if let Some(mem) = find_memory(p) {
+            mem.parent().map(|d| d.join("global_recalls.json"))
+        } else {
+            let direct = p.join(".cthg").join("global_recalls.json");
+            direct.is_file().then_some(direct)
+        };
+        if let Some(file) = recalls_file {
+            if let Ok(raw) = fs::read_to_string(&file) {
+                if let Ok(map) = serde_json::from_str::<HashMap<String, u32>>(&raw) {
+                    for (k, v) in map {
+                        if let Ok(id) = k.parse::<u32>() {
+                            *totals.entry(id).or_default() += v;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    totals
+}
+
 impl State {
     pub fn new() -> Shared {
         let mut st = State::default();
@@ -451,7 +498,22 @@ pub fn route(state: &Shared, path: &str, query: &str, pick_folder: &dyn Fn() -> 
             match src {
                 // Read on every request: the hooks keep changing the memory while it is open.
                 Some(s) => match binary::load(&s.file) {
-                    Ok(m) => json_reply(200, graph::to_json(&m, &s.label, s.scope, &pretty(&s.file))),
+                    Ok(m) => {
+                        let mut v = graph::to_json(&m, &s.label, s.scope, &pretty(&s.file));
+                        if s.scope == "global" {
+                            let repos = all_known_repo_paths(&lock());
+                            let counts = aggregate_global_recalls(&repos);
+                            if let Some(nodes) = v.get_mut("nodes").and_then(|n| n.as_array_mut()) {
+                                for node in nodes {
+                                    if let Some(nid) = node.get("id").and_then(|i| i.as_u64()) {
+                                        let cnt = counts.get(&(nid as u32)).copied().unwrap_or(0);
+                                        node["rc"] = json!(cnt);
+                                    }
+                                }
+                            }
+                        }
+                        json_reply(200, v)
+                    }
                     Err(e) => json_reply(500, json!({ "error": format!("{}: {e}", pretty(&s.file)) })),
                 },
                 None => json_reply(404, json!({ "error": "memoria desconocida" })),
@@ -600,5 +662,30 @@ mod tests {
         assert_eq!(body2["notice"], "sin índice: ejecuta `cthg index` en el repo");
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn test_global_recalls_aggregation_in_api_graph() {
+        let base1 = std::env::temp_dir().join(format!("memviz-repo1-{}", std::process::id()));
+        let base2 = std::env::temp_dir().join(format!("memviz-repo2-{}", std::process::id()));
+        let cthg1 = base1.join(".cthg");
+        let cthg2 = base2.join(".cthg");
+        let _ = fs::create_dir_all(&cthg1);
+        let _ = fs::create_dir_all(&cthg2);
+
+        // Repo 1 injected rule 0 three times, rule 1 once
+        fs::write(cthg1.join("global_recalls.json"), r#"{"0": 3, "1": 1}"#).unwrap();
+        // Repo 2 injected rule 0 two times, rule 2 four times
+        fs::write(cthg2.join("global_recalls.json"), r#"{"0": 2, "2": 4}"#).unwrap();
+
+        let paths = vec![base1.clone(), base2.clone()];
+        let totals = aggregate_global_recalls(&paths);
+        assert_eq!(totals.get(&0), Some(&5));
+        assert_eq!(totals.get(&1), Some(&1));
+        assert_eq!(totals.get(&2), Some(&4));
+        assert_eq!(totals.get(&3), None);
+
+        let _ = fs::remove_dir_all(&base1);
+        let _ = fs::remove_dir_all(&base2);
     }
 }
